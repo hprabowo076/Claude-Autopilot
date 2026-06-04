@@ -1,0 +1,56 @@
+{
+  "name": "claude-autopilot",
+  "description": "Automated Claude Code task management with queue processing and auto-resume functionality",
+  "version": "0.1.7-standalone",
+  "main": "./out/src/main.js",
+  "bin": {
+    "claude-autopilot": "./out/src/main.js"
+  },
+  "scripts": {
+    "compile": "tsc -p ./ && npx shx cp src/claude_pty_wrapper.py out/src/claude/session/ && npx shx cp -r src/webview out/src/",
+    "watch": "tsc -watch -p ./",
+    "start": "node out/src/main.js",
+    "lint": "eslint src/webview/ --ext .js --ignore-pattern 'src/webview/extension/**'",
+    "lint:fix": "eslint src/webview/ --ext .js --ignore-pattern 'src/webview/extension/**' --fix"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/node": "16.x",
+    "@types/qrcode": "^1.5.5",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9.32.0",
+    "typescript": "^4.9.4"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "automation",
+    "queue",
+    "task-management",
+    "productivity",
+    "development",
+    "anthropic",
+    "machine-learning",
+    "batch-processing",
+    "workflow"
+  ],
+  "author": "Ben Basha (forked to standalone)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benbasha/Claude-Autopilot"
+  },
+  "homepage": "https://github.com/benbasha/Claude-Autopilot#readme",
+  "dependencies": {
+    "commander": "^15.0.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "glob": "^13.0.6",
+    "qrcode": "^1.5.4",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.3"
+  }
+}
