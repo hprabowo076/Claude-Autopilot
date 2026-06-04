@@ -32,8 +32,12 @@ export function sendToWebviewTerminal(output: string): void {
 }
 
 export function getWorkspacePath(): string {
-    const { getWorkspaceRoot } = require('../core/workspace/standalone-workspace');
-    return getWorkspaceRoot() || process.cwd();
+    try {
+        const { getWorkspaceRoot } = require('../core/workspace/standalone-workspace');
+        return getWorkspaceRoot() || process.cwd();
+    } catch {
+        return process.cwd();
+    }
 }
 
 export function getHistoryStorageKey(): string {

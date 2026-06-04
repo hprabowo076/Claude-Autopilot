@@ -9,8 +9,7 @@ import { startClaudeSession } from './claude/session';
 import { addMessageToQueueFromWebview } from './queue/manager';
 import { getMobileServer } from './services/mobile';
 
-import * as path from 'path';
-const pkg = require(path.join(__dirname, '..', '..', 'package.json'));
+const pkg = { version: '0.1.7-standalone' };
 
 async function cmdStart(options: { dir?: string; skipPermissions?: boolean }) {
     if (options.dir) setWorkspaceRoot(options.dir);

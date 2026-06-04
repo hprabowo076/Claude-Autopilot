@@ -10,8 +10,7 @@
     "compile": "tsc -p ./ && npx shx cp src/claude_pty_wrapper.py out/src/claude/session/ && npx shx cp -r src/webview out/src/",
     "watch": "tsc -watch -p ./",
     "start": "node out/src/main.js",
-    "lint": "eslint src/webview/ --ext .js --ignore-pattern 'src/webview/extension/**'",
-    "lint:fix": "eslint src/webview/ --ext .js --ignore-pattern 'src/webview/extension/**' --fix"
+    "bundle": "npm run compile && npx pkg out/src/main.js --targets node18-win-x64,node18-linux-x64,node18-macos-x64 --out-path dist"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.9",
@@ -21,6 +20,7 @@
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
     "eslint": "^9.32.0",
+    "pkg": "^5.8.1",
     "typescript": "^4.9.4"
   },
   "keywords": [
