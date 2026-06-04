@@ -45,7 +45,7 @@
   },
   "homepage": "https://github.com/benbasha/Claude-Autopilot#readme",
   "dependencies": {
-    "commander": "^15.0.0",
+    "commander": "^12.1.0",
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",
     "glob": "^13.0.6",
