@@ -60,7 +60,7 @@ async function cmdServe(options: { dir?: string; port?: string }) {
 
     console.log(`Starting web server on port ${port}...`);
     const server = getMobileServer();
-    const url = await server.start();
+    const url = await server.start(port);
     console.log(`Web interface available at: ${url}`);
     console.log(`Auth URL (with token): ${server.getWebUrl()}`);
 

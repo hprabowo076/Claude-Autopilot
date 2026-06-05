@@ -84,10 +84,10 @@ export class MobileServer {
         });
     }
 
-    public async start(): Promise<string> {
+    public async start(port?: number): Promise<string> {
         this.loadConfiguration();
         
-        const url = await this.serverManager.start();
+        const url = await this.serverManager.start(port);
         
         const httpServer = this.serverManager.getHttpServer();
         if (httpServer) {

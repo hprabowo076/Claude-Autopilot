@@ -124,13 +124,14 @@ export class ServerManager {
         });
     }
 
-    public async start(): Promise<string> {
+    public async start(port?: number): Promise<string> {
         if (this.isServerRunning) {
             throw new Error('Web server is already running');
         }
 
+        const listenPort = port ?? 0;
         return new Promise((resolve, reject) => {
-            this.server = this.app.listen(0, '0.0.0.0', async () => {
+            this.server = this.app.listen(listenPort, '0.0.0.0', async () => {
                 try {
                     const address = this.server?.address() as AddressInfo;
                     const port = address?.port;
