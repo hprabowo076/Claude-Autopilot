@@ -87,23 +87,37 @@ export async function startClaudeSession(skipPermissions: boolean = true): Promi
             throw new Error(errorMsg);
         }
     
-        // On Windows, we need to run the Python wrapper through WSL since PTY requires Unix-like system calls
         let command: string;
         let args: string[];
-        
-        if (process.platform === 'win32') {
+
+        // Determine how to spawn Claude based on platform and detection method
+        // On Windows, claude.exe can run natively (no PTY wrapper needed)
+        // or via WSL (which requires the PTY wrapper for Unix-like system calls)
+        const claudePath = dependencyResults.claude.path || '';
+        const isNativeWindows = process.platform === 'win32' && claudePath && !claudePath.includes('(via WSL)');
+
+        if (isNativeWindows) {
+            // Native Windows Claude: spawn claude.exe directly with stdio pipes
+            // claude.exe is a Node.js binary that works directly on Windows
+            command = claudePath;
+            args = [];
+            if (skipPermissions) {
+                args.push('--skip-permissions');
+            }
+            debugLog(`Using native Windows Claude: ${command}`);
+        } else if (process.platform === 'win32') {
+            // Windows with WSL: use Python PTY wrapper through WSL
             // Convert Windows path to WSL path
-            // Handle both absolute and relative paths, and all drive letters
             let wslWrapperPath = wrapperPath;
-            
+
             // Convert drive letter (e.g., C: -> /mnt/c, D: -> /mnt/d)
             wslWrapperPath = wslWrapperPath.replace(/^([A-Za-z]):/, (match, driveLetter) => {
                 return `/mnt/${driveLetter.toLowerCase()}`;
             });
-            
+
             // Convert backslashes to forward slashes
             wslWrapperPath = wslWrapperPath.replace(/\\/g, '/');
-            
+
             command = 'wsl';
             args = ['python3', wslWrapperPath];
             if (skipPermissions) {
@@ -113,6 +127,7 @@ export async function startClaudeSession(skipPermissions: boolean = true): Promi
             debugLog(`WSL path: ${wslWrapperPath}`);
             debugLog(`Using WSL with Python3 and wrapper: ${wslWrapperPath}`);
         } else {
+            // Unix: use Python PTY wrapper
             command = pythonPath;
             args = [wrapperPath];
             if (skipPermissions) {

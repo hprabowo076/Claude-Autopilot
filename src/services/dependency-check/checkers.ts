@@ -19,8 +19,14 @@ export async function checkClaudeInstallation(): Promise<DependencyCheckResult> 
 }
 
 async function checkClaudeInstallationWindows(): Promise<DependencyCheckResult> {
-    // On Windows, we must use WSL because PTY functionality requires Unix-like system calls
-    // Check if WSL is available first
+    // First, try to find Claude natively on Windows PATH
+    // claude.exe is a Node.js binary that can run directly on Windows without PTY
+    const nativeResult = findNativeWindowsClaude();
+    if (nativeResult) {
+        return nativeResult;
+    }
+
+    // Fallback: WSL path (PTY wrapper is needed for WSL-based Claude)
     try {
         const { error: wslError, status: wslStatus } = spawnSync('wsl', ['--status'], {
             stdio: 'pipe',
@@ -31,30 +37,18 @@ async function checkClaudeInstallationWindows(): Promise<DependencyCheckResult> 
         if (wslError || wslStatus !== 0) {
             return {
                 available: false,
-                error: 'WSL is required for Claude Autopilot on Windows but is not available or not properly configured',
-                installInstructions: `WSL Installation Required:
-1. Install WSL: wsl --install
-2. Restart your computer
-3. Install Claude CLI inside WSL
-4. Verify: wsl claude --version
-
-WSL is required because the extension uses PTY functionality that requires Unix-like system calls.`
+                error: 'Claude CLI not found on Windows PATH and WSL is not available. Install Claude natively or configure WSL.',
+                installInstructions: getClaudeInstallInstructions()
             };
         }
     } catch (error) {
         return {
             available: false,
-            error: 'WSL is required for Claude Autopilot on Windows but is not available',
-            installInstructions: `WSL Installation Required:
-1. Install WSL: wsl --install
-2. Restart your computer
-3. Install Claude CLI inside WSL
-4. Verify: wsl claude --version
-
-WSL is required because the extension uses PTY functionality that requires Unix-like system calls.`
+            error: 'Claude CLI not found on Windows PATH and WSL is not available.',
+            installInstructions: getClaudeInstallInstructions()
         };
     }
-    
+
     // Now check if Claude is available in WSL
     try {
         const { error, status, stdout, stderr } = spawnSync('wsl', ['claude', '--version'], {
@@ -91,6 +85,81 @@ WSL is required because the extension uses PTY functionality that requires Unix-
             installInstructions: getClaudeInstallInstructions()
         };
     }
+}
+
+/**
+ * Try to find Claude CLI natively on Windows (not through WSL).
+ * claude.exe is a Node.js binary that can run directly on Windows.
+ * Returns a DependencyCheckResult if found, or null if not found.
+ */
+function findNativeWindowsClaude(): DependencyCheckResult | null {
+    // Check common install locations first
+    const userProfile = process.env.USERPROFILE || '';
+    const homeDrive = process.env.HOMEDRIVE || '';
+    const homePath = process.env.HOMEPATH || '';
+
+    const candidatePaths = [
+        path.join(userProfile, '.local', 'bin', 'claude.exe'),
+        path.join(userProfile, '.local', 'bin', 'claude'),
+        userProfile ? path.join(userProfile, '.local', 'bin', 'claude.cmd') : '',
+        homeDrive + homePath ? path.join(homeDrive + homePath, '.local', 'bin', 'claude.exe') : '',
+    ].filter(Boolean);
+
+    for (const candidatePath of candidatePaths) {
+        try {
+            if (fs.existsSync(candidatePath)) {
+                // Found claude at known location, verify it works
+                const { error, status, stdout, stderr } = spawnSync(candidatePath, ['--version'], {
+                    stdio: 'pipe',
+                    encoding: 'utf8',
+                    timeout: 5000
+                });
+
+                if (!error && status === 0) {
+                    return {
+                        available: true,
+                        version: (stdout || '').trim(),
+                        path: candidatePath
+                    };
+                }
+            }
+        } catch {
+            // Continue to next candidate
+        }
+    }
+
+    // Try `where claude` to find it on PATH
+    try {
+        const { error, status, stdout, stderr } = spawnSync('where', ['claude'], {
+            stdio: 'pipe',
+            encoding: 'utf8',
+            timeout: 5000
+        });
+
+        if (!error && status === 0) {
+            const foundPath = (stdout || '').trim().split('\n')[0].trim();
+            if (foundPath) {
+                // Verify it works
+                const { error: verError, status: verStatus, stdout: verStdout } = spawnSync(foundPath, ['--version'], {
+                    stdio: 'pipe',
+                    encoding: 'utf8',
+                    timeout: 5000
+                });
+
+                if (!verError && verStatus === 0) {
+                    return {
+                        available: true,
+                        version: (verStdout || '').trim(),
+                        path: foundPath
+                    };
+                }
+            }
+        }
+    } catch {
+        // where command not available, continue to WSL fallback
+    }
+
+    return null;
 }
 
 async function checkClaudeInstallationGeneric(): Promise<DependencyCheckResult> {
@@ -316,23 +385,23 @@ function getClaudeInstallInstructions(): string {
 4. Verify installation: claude --version`;
             
         case 'win32': // Windows
-            return `Claude CLI Installation (Windows - WSL Required):
-IMPORTANT: WSL is required for Claude Autopilot on Windows because it uses PTY functionality that requires Unix-like system calls.
+            return `Claude CLI Installation (Windows):
 
-1. Install WSL (if not already installed):
-   - Run: wsl --install
-   - Restart your computer
+Option 1 - Native Windows (Recommended):
+   The standalone CLI fork supports running Claude natively on Windows.
+   1. Install Claude CLI for Windows: npm install -g @anthropic-ai/claude-code
+   2. Or download the Windows binary and place it in %USERPROFILE%\\.local\\bin\\claude.exe
+   3. Verify: claude --version
 
-2. Install Claude CLI inside WSL:
-   - Open WSL terminal (Ubuntu/your preferred distro)
-   - Install Claude CLI following Linux instructions
-   - Verify: claude --version (inside WSL)
-   - Run claude and set up your API key/Subscription token
+Option 2 - WSL (Legacy):
+   If you prefer to run Claude via WSL:
+   1. Install WSL: wsl --install
+   2. Restart your computer
+   3. Inside WSL, install Claude CLI following Linux instructions
+   4. Verify: wsl claude --version
 
-3. Verify from Windows:
-   - Test: wsl claude --version
-
-The extension will automatically use WSL to run Claude on Windows.`;
+The standalone CLI will auto-detect Claude natively on Windows PATH first,
+then fall back to WSL. Native mode is preferred as it does not require PTY.`;
             
         case 'linux': // Linux
             return `Claude CLI Installation (Linux):
