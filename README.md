@@ -47,7 +47,7 @@ claude-autopilot serve
 | Flag | Description |
 |------|-------------|
 | `--dir <path>` | Working directory (default: cwd) |
-| `--skip-permissions` | Pass `--dangerously-skip-permissions` to Claude CLI |
+| `--skip-permissions` | Pass `--permission-mode bypassPermissions` to Claude CLI |
 
 ---
 

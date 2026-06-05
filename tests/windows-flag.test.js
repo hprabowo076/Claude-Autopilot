@@ -12,8 +12,9 @@ const tokens = occurrences.map(token => {
 
 console.log('tokens:', tokens);
 
-if (tokens.some(token => token === '--skip-permissions')) {
+if (tokens.some(token => token === '--dangerously-skip-permissions')) {
+    console.log('FAIL: Old flag --dangerously-skip-permissions still in use');
     process.exit(1);
 }
 
-console.log('PASS: All Claude branches use --dangerously-skip-permissions');
+console.log('PASS: All Claude branches use --permission-mode bypassPermissions');

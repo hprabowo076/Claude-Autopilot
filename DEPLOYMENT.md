@@ -124,7 +124,7 @@ vsce publish major  # 3.0.0
 ## 🔒 Security Considerations
 
 ### **Important Notes**
-- Extension uses `--dangerously-skip-permissions` flag
+- Extension uses `--permission-mode bypassPermissions` flag
 - Only for trusted development environments
 - No external data collection or transmission
 - All processing happens locally
