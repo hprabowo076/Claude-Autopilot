@@ -10,6 +10,7 @@ import { getErrorMessage } from '../../utils/error-handler';
 import { showInfo, showError, showWarning, Messages } from '../../utils/notifications';
 import { updateWebviewContent, updateSessionState } from '../../ui/webview';
 import { sendClaudeOutput } from '../../claude/output';
+import { getWorkspaceRoot } from '../../core/workspace/standalone-workspace';
 
 /**
  * Find the Claude CLI executable on the system.
@@ -72,21 +73,25 @@ export async function runClaudePrint(
         throw new Error(errMsg);
     }
 
-    const args: string[] = ['-p', prompt];
+    const args: string[] = ['-p', prompt, '--print'];
     if (skipPermissions) {
         args.push('--permission-mode', 'bypassPermissions');
     }
 
-    debugLog(`Spawning: ${claudePath} ${args.join(' ')}`);
+    const cwd = getWorkspaceRoot() || process.cwd();
+    debugLog(`Spawning: ${claudePath} ${args.join(' ')} in ${cwd}`);
 
     return new Promise<string>((resolve, reject) => {
         const proc = spawn(claudePath, args, {
+            cwd,
             stdio: ['pipe', 'pipe', 'pipe'],
             env: {
                 ...process.env,
                 TERM: 'xterm-256color',
             },
         });
+
+        setClaudeProcess(proc);
 
         let stdout = '';
         let stderr = '';
@@ -106,6 +111,7 @@ export async function runClaudePrint(
         });
 
         proc.on('close', (code: number | null) => {
+            setClaudeProcess(null);
             debugLog(`Print process closed with code: ${code}`);
             if (code === 0) {
                 resolve(stdout);
@@ -116,6 +122,7 @@ export async function runClaudePrint(
         });
 
         proc.on('error', (err: Error) => {
+            setClaudeProcess(null);
             debugLog(`Print process error: ${err.message}`);
             reject(err);
         });
