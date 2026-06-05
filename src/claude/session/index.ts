@@ -102,7 +102,7 @@ export async function startClaudeSession(skipPermissions: boolean = true): Promi
             command = claudePath;
             args = [];
             if (skipPermissions) {
-                args.push('--dangerously-skip-permissions');
+                args.push('--permission-mode', 'bypassPermissions');
             }
             debugLog(`Using native Windows Claude: ${command}`);
         } else if (process.platform === 'win32') {
@@ -121,7 +121,7 @@ export async function startClaudeSession(skipPermissions: boolean = true): Promi
             command = 'wsl';
             args = ['python3', wslWrapperPath];
             if (skipPermissions) {
-                args.push('--dangerously-skip-permissions');
+                args.push('--permission-mode', 'bypassPermissions');
             }
             debugLog(`Original path: ${wrapperPath}`);
             debugLog(`WSL path: ${wslWrapperPath}`);
@@ -131,7 +131,7 @@ export async function startClaudeSession(skipPermissions: boolean = true): Promi
             command = pythonPath;
             args = [wrapperPath];
             if (skipPermissions) {
-                args.push('--dangerously-skip-permissions');
+                args.push('--permission-mode', 'bypassPermissions');
             }
             debugLog(`Using Python: ${pythonPath}`);
             debugLog(`Using wrapper: ${wrapperPath}`);
