@@ -1,408 +1,164 @@
-import { spawn } from 'child_process';
-import * as path from 'path';
+import { execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
+import * as path from 'path';
 import {
-    claudeProcess, sessionReady, currentMessage, processingQueue,
-    setClaudeProcess, setSessionReady, setCurrentMessage, setProcessingQueue
+    claudeProcess, sessionReady, setClaudeProcess, setSessionReady,
+    setCurrentMessage, setProcessingQueue
 } from '../../core/state';
 import { debugLog, formatTerminalOutput, sendToWebviewTerminal } from '../../utils/logging';
 import { getErrorMessage } from '../../utils/error-handler';
-import { showInfo, showError, showWarning, showErrorFromException, Messages } from '../../utils/notifications';
-import { DebugEmojis, formatDebugMessage } from '../../core/constants/ui-strings';
+import { showInfo, showError, showWarning, Messages } from '../../utils/notifications';
 import { updateWebviewContent, updateSessionState } from '../../ui/webview';
 import { sendClaudeOutput } from '../../claude/output';
-import { handleUsageLimit, isCurrentUsageLimit } from '../../services/usage';
-import { startHealthCheck, stopHealthCheck } from '../../services/health';
-import { startSleepPrevention, stopSleepPrevention } from '../../services/sleep';
-import { runDependencyCheck, showDependencyStatus } from '../../services/dependency-check';
-import { getWorkspaceRoot } from '../../core/workspace/standalone-workspace';
 
-export async function startClaudeSession(skipPermissions: boolean = true): Promise<void> {
-    debugLog('=== STARTING CLAUDE SESSION ===');
-    
+/**
+ * Find the Claude CLI executable on the system.
+ * Searches PATH first, then ~/.local/bin/ and other common locations.
+ */
+export function findClaudeExecutable(): string | null {
+    // Try PATH first using platform-appropriate command
     try {
-        if (claudeProcess) {
-            showInfo(Messages.SESSION_ALREADY_RUNNING);
-            debugLog('Claude session already running - aborting');
-            return;
+        const shell = process.platform === 'win32' ? 'cmd.exe' : 'sh';
+        const shellArgs = process.platform === 'win32'
+            ? ['/c', 'where claude 2>nul']
+            : ['-c', 'which claude 2>/dev/null'];
+        const whichResult = execFileSync(shell, shellArgs, {
+            encoding: 'utf-8',
+            timeout: 5000
+        }).trim().split('\n')[0];
+        if (whichResult) {
+            debugLog(`Found Claude on PATH: ${whichResult}`);
+            return whichResult;
         }
-
-        // Check dependencies before starting
-        debugLog(formatDebugMessage(DebugEmojis.SEARCH, 'Checking dependencies...'));
-        let dependencyResults: Awaited<ReturnType<typeof runDependencyCheck>>;
-        try {
-            dependencyResults = await runDependencyCheck();
-        } catch (error) {
-            debugLog(formatDebugMessage(DebugEmojis.ERROR, `Failed to check dependencies: ${error}`));
-            showErrorFromException(error, 'Failed to check dependencies');
-            return;
-        }
-        
-        // Check if all critical dependencies are ready
-        const allReady = dependencyResults.claude.available && 
-                        dependencyResults.python.available && 
-                        dependencyResults.wrapper.available;
-        
-        debugLog(`🔍 Dependency check results:
-  Claude CLI: ${dependencyResults.claude.available ? '✅' : '❌'} ${dependencyResults.claude.available ? dependencyResults.claude.version : dependencyResults.claude.error}
-  Python: ${dependencyResults.python.available ? '✅' : '❌'} ${dependencyResults.python.available ? dependencyResults.python.version : dependencyResults.python.error}
-  PTY Wrapper: ${dependencyResults.wrapper.available ? '✅' : '❌'} ${dependencyResults.wrapper.available ? dependencyResults.wrapper.version : dependencyResults.wrapper.error}`);
-        
-        if (!allReady) {
-            debugLog('❌ BLOCKING SESSION START - Dependencies not satisfied');
-            showDependencyStatus(dependencyResults);
-            debugLog('❌ SESSION START ABORTED - Returning early due to missing dependencies');
-            return;
-        }
-        
-        debugLog('✅ All dependencies satisfied, proceeding with session start');
-
-        const cwd = getWorkspaceRoot() || process.cwd();
-        
-        debugLog(`Working directory: ${cwd}`);
-        debugLog('Spawning Claude process...');
-        
-        // Use the detected Python path
-        const pythonPath = dependencyResults.python.path || 'python3';
-        
-        // Verify wrapper file exists
-        const wrapperPath = dependencyResults.wrapper.path;
-        if (!wrapperPath) {
-            const errorMsg = 'Claude PTY wrapper not found. Please reinstall the extension.';
-            showError(errorMsg);
-            debugLog('❌ PTY wrapper file not found');
-            throw new Error(errorMsg);
-        }
-        
-        // Verify wrapper file is readable
-        try {
-            if (!fs.existsSync(wrapperPath)) {
-                throw new Error('Wrapper file does not exist');
-            }
-            fs.accessSync(wrapperPath, fs.constants.R_OK);
-        } catch (error) {
-            const errorMsg = `Cannot access PTY wrapper: ${getErrorMessage(error)}`;
-            showError(errorMsg);
-            debugLog(formatDebugMessage(DebugEmojis.ERROR, `Cannot access wrapper file: ${error}`));
-            throw new Error(errorMsg);
-        }
-    
-        let command: string;
-        let args: string[];
-
-        // Determine how to spawn Claude based on platform and detection method
-        // On Windows, claude.exe can run natively (no PTY wrapper needed)
-        // or via WSL (which requires the PTY wrapper for Unix-like system calls)
-        const claudePath = dependencyResults.claude.path || '';
-        const isNativeWindows = process.platform === 'win32' && claudePath && !claudePath.includes('(via WSL)');
-
-        if (isNativeWindows) {
-            // Native Windows Claude: spawn claude.exe directly with stdio pipes
-            // claude.exe is a Node.js binary that works directly on Windows
-            command = claudePath;
-            args = [];
-            if (skipPermissions) {
-                args.push('--permission-mode', 'bypassPermissions');
-            }
-            debugLog(`Using native Windows Claude: ${command}`);
-        } else if (process.platform === 'win32') {
-            // Windows with WSL: use Python PTY wrapper through WSL
-            // Convert Windows path to WSL path
-            let wslWrapperPath = wrapperPath;
-
-            // Convert drive letter (e.g., C: -> /mnt/c, D: -> /mnt/d)
-            wslWrapperPath = wslWrapperPath.replace(/^([A-Za-z]):/, (match, driveLetter) => {
-                return `/mnt/${driveLetter.toLowerCase()}`;
-            });
-
-            // Convert backslashes to forward slashes
-            wslWrapperPath = wslWrapperPath.replace(/\\/g, '/');
-
-            command = 'wsl';
-            args = ['python3', wslWrapperPath];
-            if (skipPermissions) {
-                args.push('--permission-mode', 'bypassPermissions');
-            }
-            debugLog(`Original path: ${wrapperPath}`);
-            debugLog(`WSL path: ${wslWrapperPath}`);
-            debugLog(`Using WSL with Python3 and wrapper: ${wslWrapperPath}`);
-        } else {
-            // Unix: use Python PTY wrapper
-            command = pythonPath;
-            args = [wrapperPath];
-            if (skipPermissions) {
-                args.push('--permission-mode', 'bypassPermissions');
-            }
-            debugLog(`Using Python: ${pythonPath}`);
-            debugLog(`Using wrapper: ${wrapperPath}`);
-        }
-        
-        let spawnedProcess;
-        try {
-            spawnedProcess = spawn(command, args, {
-                cwd: cwd,
-                stdio: ['pipe', 'pipe', 'pipe'],
-                env: { 
-                    ...process.env,
-                    TERM: 'xterm-256color',
-                    COLUMNS: '120',
-                    LINES: '30'
-                }
-            });
-        } catch (error) {
-            const errorMsg = `Failed to spawn Claude process: ${getErrorMessage(error)}`;
-            showError(errorMsg);
-            debugLog(formatDebugMessage(DebugEmojis.ERROR, `Process spawn error: ${error}`));
-            throw new Error(errorMsg);
-        }
-
-        if (!spawnedProcess || !spawnedProcess.pid) {
-            const errorMsg = 'Failed to start Claude process - no process ID';
-            showError(errorMsg);
-            debugLog('❌ Failed to start Claude process - no PID');
-            throw new Error(errorMsg);
-        }
-
-    setClaudeProcess(spawnedProcess);
-    debugLog(`✓ Claude process started successfully`);
-    debugLog(`Process PID: ${spawnedProcess.pid}`);
-    
-    spawnedProcess.stdout?.on('data', (data: Buffer) => {
-        const output = data.toString();
-        
-        sendClaudeOutput(output);
-        
-        if (output.includes('Claude usage limit reached') || output.includes('usage limit reached')) {
-            debugLog('⚠️ POTENTIAL USAGE LIMIT DETECTED');
-            debugLog(`📋 Usage limit output: ${output}`);
-            if (currentMessage && isCurrentUsageLimit(output)) {
-                debugLog('✅ Confirmed: This is a current usage limit');
-                handleUsageLimit(output, currentMessage);
-            } else {
-                debugLog('⚠️ Skipped: Usage limit is old or not within 6-hour window');
-            }
-            return;
-        }
-        
-        const claudeAuthErrors = [
-            'Claude CLI authentication failed',
-            'Please authenticate with Claude'
-        ];
-        const isAuthError = claudeAuthErrors.some(authError => output.includes(authError));
-        
-        if (isAuthError) {
-            debugLog('🔐 AUTHENTICATION ERROR detected');
-            setSessionReady(false);
-            if (currentMessage) {
-                currentMessage.status = 'error';
-                currentMessage.error = 'Claude CLI authentication failed';
-                updateWebviewContent();
-            }
-            showError('Claude CLI authentication failed');
-            return;
-        }
-        
-        const permissionPrompts = [
-            'Do you want to make this edit to',
-            'Do you want to create',
-            'Do you want to delete',
-            'Do you want to read',
-            'Would you like to',
-            'Proceed with',
-            'Continue?'
-        ];
-        
-        const hasPermissionPrompt = permissionPrompts.some(prompt => output.includes(prompt));
-        
-        // Detect the CLI ready prompt either by the textual hint or the ANSI-styled prompt line
-        const shortcutsPromptRegex = /\\u001b\[39m\\u001b\[22m\s>\s\\u001b\[7mT\\u001b\[27m/;
-
-        if (hasPermissionPrompt && !sessionReady) {
-            debugLog('��� Permission prompt detected during startup - session ready for user interaction');
-            setSessionReady(true);
-            startHealthCheck();
-            startSleepPrevention();
-            updateSessionState();
-            
-            // Check for pending messages to auto-start
-            setTimeout(() => {
-                const { tryAutoStartProcessing } = require('../../queue/manager');
-                tryAutoStartProcessing();
-            }, 500);
-            
-            showInfo('Claude is asking for permission. Use the Claude output area to navigate and select your choice.');
-        } else if ((output.includes('? for shortcuts') || shortcutsPromptRegex.test(JSON.stringify(output))) && !sessionReady) {
-            debugLog('✅ Claude ready prompt detected during startup');
-            setSessionReady(true);
-            startHealthCheck();
-            startSleepPrevention();
-            updateSessionState();
-            
-            // Check for pending messages to auto-start
-            setTimeout(() => {
-                const { tryAutoStartProcessing } = require('../../queue/manager');
-                tryAutoStartProcessing();
-            }, 500);
-            
-            showInfo('Claude session started and ready! You can now process the message queue.');
-        }
-    });
-
-    spawnedProcess.stderr?.on('data', (data: Buffer) => {
-        const error = data.toString();
-        debugLog(`📥 STDERR: ${error}`);
-        
-        const formattedError = formatTerminalOutput(error, 'error');
-        sendToWebviewTerminal(formattedError);
-    });
-
-    spawnedProcess.on('close', (code: number | null) => {
-        debugLog(`🔚 PROCESS CLOSED with code: ${code}`);
-        setSessionReady(false);
-        stopHealthCheck();
-        stopSleepPrevention();
-        
-        // Output flushing handled elsewhere
-        
-        const wasProcessing = processingQueue;
-        setProcessingQueue(false);
-        
-        const closeMessage = formatTerminalOutput(`Claude process closed with code: ${code}`, 'info');
-        sendToWebviewTerminal(closeMessage);
-        
-        if (currentMessage && currentMessage.status === 'processing') {
-            debugLog(`❌ Current message #${currentMessage.id} marked as error due to process closure`);
-            currentMessage.status = 'error';
-            currentMessage.error = `Claude process closed unexpectedly (code: ${code})`;
-            setCurrentMessage(null);
-        }
-        
-        setClaudeProcess(null);
-        
-        updateWebviewContent();
-        updateSessionState();
-        
-        if (wasProcessing) {
-            showWarning('Claude process closed unexpectedly while processing. You can restart the session.');
-        } else {
-            showInfo('Claude session ended');
-        }
-        debugLog('=== CLAUDE SESSION ENDED ===');
-    });
-
-    spawnedProcess.on('error', (error: Error) => {
-        debugLog(`💥 PROCESS ERROR: ${error.message}`);
-        
-        setSessionReady(false);
-        stopHealthCheck();
-        stopSleepPrevention();
-        
-        // Output flushing handled elsewhere
-        
-        const wasProcessing = processingQueue;
-        setProcessingQueue(false);
-        
-        const errorMessage = formatTerminalOutput(`Claude process error: ${error.message}`, 'error');
-        sendToWebviewTerminal(errorMessage);
-        
-        if (currentMessage && currentMessage.status === 'processing') {
-            debugLog(`❌ Current message #${currentMessage.id} marked as error due to process error`);
-            currentMessage.status = 'error';
-            currentMessage.error = `Claude process error: ${error.message}`;
-            setCurrentMessage(null);
-        }
-        
-        setClaudeProcess(null);
-        
-        updateWebviewContent();
-        updateSessionState();
-        
-        if (wasProcessing) {
-            showError(`Claude process error while processing: ${error.message}`);
-        } else {
-            showError(`Claude process error: ${error.message}`);
-        }
-        debugLog('=== CLAUDE SESSION ENDED WITH ERROR ===');
-    });
-
-    } catch (error) {
-        // Global catch block for any unexpected errors during session startup
-        const errorMsg = `Failed to start Claude session: ${getErrorMessage(error)}`;
-        debugLog(formatDebugMessage(DebugEmojis.ERROR, `Claude session startup failed: ${error}`));
-        showError(errorMsg);
-        
-        // Clean up any partial state
-        if (claudeProcess) {
-            try {
-                claudeProcess.kill();
-            } catch (killError) {
-                debugLog(`❌ Error killing process during cleanup: ${killError}`);
-            }
-            setClaudeProcess(null);
-        }
-        
-        setSessionReady(false);
-        stopHealthCheck();
-        stopSleepPrevention();
-        updateSessionState();
-        
-        throw error; // Re-throw to allow callers to handle
+    } catch {
+        debugLog('Claude not found on PATH');
     }
+
+    // Check common install locations
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const candidates = [
+        path.join(home, '.local', 'bin', 'claude'),
+        path.join(home, '.local', 'bin', 'claude.exe'),
+        path.join(home, 'AppData', 'Local', 'claude', 'claude.exe'),
+    ];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            debugLog(`Found Claude at: ${candidate}`);
+            return candidate;
+        }
+    }
+
+    debugLog('Claude executable not found');
+    return null;
 }
 
-export function resetClaudeSession(): void {
-    if (claudeProcess) {
-        claudeProcess.kill();
-        setClaudeProcess(null);
-        setSessionReady(false);
+/**
+ * Run a single Claude prompt in print mode.
+ * Spawns `claude -p <prompt> --permission-mode bypassPermissions`,
+ * captures stdout, and returns the response string.
+ */
+export async function runClaudePrint(
+    prompt: string,
+    skipPermissions: boolean = true
+): Promise<string> {
+    debugLog('=== RUN CLAUDE PRINT MODE ===');
+
+    const claudePath = findClaudeExecutable();
+    if (!claudePath) {
+        const errMsg = 'Claude CLI not found on PATH or common locations';
+        debugLog(errMsg);
+        showError(errMsg);
+        throw new Error(errMsg);
     }
-    
-    stopSleepPrevention();
+
+    const args: string[] = ['-p', prompt];
+    if (skipPermissions) {
+        args.push('--permission-mode', 'bypassPermissions');
+    }
+
+    debugLog(`Spawning: ${claudePath} ${args.join(' ')}`);
+
+    return new Promise<string>((resolve, reject) => {
+        const proc = spawn(claudePath, args, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: {
+                ...process.env,
+                TERM: 'xterm-256color',
+            },
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout?.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            stdout += chunk;
+            sendClaudeOutput(chunk);
+        });
+
+        proc.stderr?.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            stderr += chunk;
+            debugLog(`STDERR: ${chunk}`);
+            const formattedError = formatTerminalOutput(chunk, 'error');
+            sendToWebviewTerminal(formattedError);
+        });
+
+        proc.on('close', (code: number | null) => {
+            debugLog(`Print process closed with code: ${code}`);
+            if (code === 0) {
+                resolve(stdout);
+            } else {
+                const errMsg = stderr || `Process exited with code ${code}`;
+                reject(new Error(errMsg));
+            }
+        });
+
+        proc.on('error', (err: Error) => {
+            debugLog(`Print process error: ${err.message}`);
+            reject(err);
+        });
+    });
+}
+
+/**
+ * No-op kept for backward compatibility.
+ * In print mode there is no persistent session; the caller uses runClaudePrint() directly.
+ */
+export async function startClaudeSession(_skipPermissions?: boolean): Promise<void> {
+    debugLog('startClaudeSession: print mode - no persistent session needed');
+    setSessionReady(true);
+    showInfo('Claude session ready (print mode)');
+}
+
+/**
+ * Reset Claude session state.
+ */
+export function resetClaudeSession(): void {
+    debugLog('resetClaudeSession: cleaning up any lingering process');
+
+    if (claudeProcess) {
+        try {
+            claudeProcess.kill();
+        } catch {
+            debugLog('Could not kill lingering claude process');
+        }
+        setClaudeProcess(null);
+    }
+
+    setSessionReady(false);
     setCurrentMessage(null);
     setProcessingQueue(false);
-    
+
     updateWebviewContent();
     updateSessionState();
-    showInfo('Claude session reset. You can now start a new session.');
+    showInfo('Claude session reset');
 }
 
-export function handleClaudeKeypress(key: string): void {
-    if (!claudeProcess || !claudeProcess.stdin) {
-        debugLog(`❌ Cannot send keypress: Claude process not available`);
-        showWarning('Claude process not available for keypress input');
-        return;
-    }
-
-    debugLog(`⌨️  Sending keypress: ${key}`);
-    
-    try {
-        switch (key) {
-            case 'up':
-                claudeProcess.stdin.write('\x1b[A');
-                break;
-            case 'down':
-                claudeProcess.stdin.write('\x1b[B');
-                break;
-            case 'left':
-                claudeProcess.stdin.write('\x1b[D');
-                break;
-            case 'right':
-                claudeProcess.stdin.write('\x1b[C');
-                break;
-            case 'enter':
-                claudeProcess.stdin.write('\r');
-                break;
-            case 'escape':
-                claudeProcess.stdin.write('\x1b');
-                break;
-            default:
-                debugLog(`❌ Unknown key: ${key}`);
-                showWarning(`Unknown key command: ${key}`);
-                return;
-        }
-    } catch (error) {
-        const errorMsg = `Failed to send keypress '${key}': ${getErrorMessage(error)}`;
-        debugLog(formatDebugMessage(DebugEmojis.ERROR, `Keypress error: ${error}`));
-        showError(errorMsg);
-    }
+/**
+ * Stub: keypress handling is not applicable in print mode.
+ */
+export function handleClaudeKeypress(_key: string): void {
+    debugLog('handleClaudeKeypress: not applicable in print mode (no interactive session)');
 }
