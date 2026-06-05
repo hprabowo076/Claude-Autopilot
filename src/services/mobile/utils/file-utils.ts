@@ -11,6 +11,13 @@ export class FileUtils {
                 path: folders[0].uri.fsPath
             };
         }
+        const wsRoot = getWorkspaceRoot();
+        if (wsRoot) {
+            return {
+                name: 'No Workspace',
+                path: wsRoot
+            };
+        }
         return {
             name: 'No Workspace',
             path: process.cwd()
@@ -45,8 +52,16 @@ export class FileUtils {
         const ignorePatterns = [
             '.git', '.vscode', 'node_modules', '.DS_Store', 'Thumbs.db',
             '.gitignore', '.vscodeignore', 'out', 'dist', 'build', '.cache',
-            '__pycache__', '*.pyc', '.env', '.env.local', '.next', 'coverage'
+            '__pycache__', '*.pyc', '.env', '.env.local', '.next', 'coverage',
+            'AppData', 'ElevatedDiagnostics'
         ];
+
+        if (process.platform === 'win32') {
+            ignorePatterns.push(
+                '$RECYCLE.BIN', '$Recycle.Bin', 'System Volume Information',
+                'Windows', 'Program Files', 'Program Files (x86)', 'ProgramData'
+            );
+        }
 
         try {
             const entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -65,8 +80,13 @@ export class FileUtils {
                 }
 
                 const fullPath = path.join(dirPath, entry.name);
-                const stats = fs.statSync(fullPath);
-                const relativePath = path.relative(this.getWorkspaceRoot()!, fullPath);
+                let stats;
+                try {
+                    stats = fs.statSync(fullPath);
+                } catch (statError) {
+                    continue;
+                }
+                const relativePath = path.relative(this.getWorkspaceRoot() || '', fullPath);
 
                 if (entry.isDirectory()) {
                     const item = {

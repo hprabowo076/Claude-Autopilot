@@ -7,11 +7,19 @@ import { wrapCommandForWSL } from '../../utils/wsl-helper';
 export async function getGitStatus(): Promise<GitStatusResult> {
     const workspaceRoot = getWorkspaceRoot();
     if (!workspaceRoot) {
-        throw new GitSecurityError('No workspace available');
+        return {
+            branch: null,
+            files: [],
+            isClean: true
+        };
     }
 
     if (!isGitRepository(workspaceRoot)) {
-        throw new GitSecurityError('Not a git repository');
+        return {
+            branch: null,
+            files: [],
+            isClean: true
+        };
     }
 
     // Only get uncommitted files - no branch info needed for simplified interface

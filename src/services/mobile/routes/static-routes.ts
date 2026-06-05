@@ -188,9 +188,6 @@ export class StaticRoutes {
             
             res.setHeader('Content-Type', 'application/javascript');
             res.send(embeddedContent);
-            
-            res.setHeader('Content-Type', 'application/javascript');
-            res.send(embeddedContent);
         });
     }
 }
