@@ -27,7 +27,7 @@ def main():
     # Start Claude process with the slave PTY as its controlling terminal
     claude_args = get_claude_command()
     if skip_permissions:
-        claude_args.append('--dangerously-skip-permissions')
+        claude_args.extend(['--permission-mode', 'bypassPermissions'])
     
     claude_process = subprocess.Popen(
         claude_args,
