@@ -2,6 +2,45 @@ import { Application, Request, Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import { AuthManager, AuthConfig } from '../auth/';
+import {
+    INDEX_HTML,
+    PASSWORD_HTML,
+    MANIFEST_JSON,
+    STYLES_CSS,
+    JS_APP_JS,
+    JS_CONSTANTS_JS,
+    JS_CORE_MOBILEINTERFACE_JS,
+    JS_EXPLORER_FILEEXPLORER_JS,
+    JS_GIT_GITCHANGES_JS,
+    JS_UTILS_ANSI_JS,
+    JS_UTILS_HTML_JS,
+    JS_UTILS_SYNTAX_JS,
+    JS_UTILS_TIME_JS,
+} from './embedded-webview';
+
+const EMBEDDED_FILES: Record<string, string> = {
+    'index.html': INDEX_HTML,
+    'password.html': PASSWORD_HTML,
+    'manifest.json': MANIFEST_JSON,
+    'styles.css': STYLES_CSS,
+    'js/app.js': JS_APP_JS,
+    'js/constants.js': JS_CONSTANTS_JS,
+    'js/core/MobileInterface.js': JS_CORE_MOBILEINTERFACE_JS,
+    'js/explorer/FileExplorer.js': JS_EXPLORER_FILEEXPLORER_JS,
+    'js/git/GitChanges.js': JS_GIT_GITCHANGES_JS,
+    'js/utils/ansi.js': JS_UTILS_ANSI_JS,
+    'js/utils/html.js': JS_UTILS_HTML_JS,
+    'js/utils/syntax.js': JS_UTILS_SYNTAX_JS,
+    'js/utils/time.js': JS_UTILS_TIME_JS,
+};
+
+function getEmbeddedFile(requestedPath: string): string | undefined {
+    return EMBEDDED_FILES[requestedPath];
+}
+
+function isEmbeddedFile(requestedPath: string): boolean {
+    return requestedPath in EMBEDDED_FILES;
+}
 
 /**
  * Extract auth token from request, trying multiple sources:
@@ -60,8 +99,7 @@ export class StaticRoutes {
                 }
             }
 
-            const htmlPath = path.join(__dirname, '../../../webview/web/index.html');
-            let html = fs.readFileSync(htmlPath, 'utf8');
+            let html = INDEX_HTML;
 
             html = html.replace('href="styles.css"', `href="styles.css?token=${this.config.authToken}"`);
             html = html.replace('src="js/app.js"', `src="js/app.js?token=${this.config.authToken}"`);
@@ -83,9 +121,7 @@ export class StaticRoutes {
                 return res.status(401).json({ error: 'Unauthorized: Invalid or missing authentication token' });
             }
 
-            const htmlPath = path.join(__dirname, '../../../webview/web/password.html');
-            const html = fs.readFileSync(htmlPath, 'utf8');
-            res.send(html);
+            res.send(PASSWORD_HTML);
         });
 
         app.get('/manifest.json', (req: Request, res: Response) => {
@@ -97,7 +133,8 @@ export class StaticRoutes {
                 return;
             }
 
-            res.sendFile(path.join(__dirname, '../../../webview/web/manifest.json'));
+            res.setHeader('Content-Type', 'application/json');
+            res.send(MANIFEST_JSON);
         });
 
 
@@ -110,22 +147,8 @@ export class StaticRoutes {
                 return;
             }
 
-            const filePath = path.join(__dirname, '../../../webview/web/styles.css');
-
-            if (!fs.existsSync(filePath)) {
-                console.error('styles.css not found at expected path:', filePath);
-                return res.status(404).send('styles.css not found');
-            }
-
             res.setHeader('Content-Type', 'text/css');
-
-            try {
-                const cssContent = fs.readFileSync(filePath, 'utf8');
-                res.send(cssContent);
-            } catch (error) {
-                console.error('Error reading styles.css:', error);
-                res.status(500).send('Error loading stylesheet');
-            }
+            res.send(STYLES_CSS);
         });
 
 
@@ -155,30 +178,19 @@ export class StaticRoutes {
             }
             
             // Extract the file path from the URL
-            const requestedPath = req.path; // e.g., "/js/app.js" or "/js/core/MobileInterface.js"
-            const filePath = path.join(__dirname, '../../../webview/web', requestedPath);
+            const requestedPath = req.path.replace(/^\//, '');
             
-            // Security check: ensure the path stays within the webview/web directory
-            const normalizedPath = path.normalize(filePath);
-            const basePath = path.join(__dirname, '../../../webview/web');
-            if (!normalizedPath.startsWith(basePath)) {
-                return res.status(403).send('Forbidden: Path traversal detected');
-            }
-            
-            if (!fs.existsSync(filePath)) {
-                console.error(`JS file not found at path: ${filePath}`);
+            const embeddedContent = getEmbeddedFile(requestedPath);
+            if (embeddedContent === undefined) {
+                console.error(`JS file not embedded: ${requestedPath}`);
                 return res.status(404).send(`JS file not found: ${requestedPath}`);
             }
             
             res.setHeader('Content-Type', 'application/javascript');
+            res.send(embeddedContent);
             
-            try {
-                const jsContent = fs.readFileSync(filePath, 'utf8');
-                res.send(jsContent);
-            } catch (error) {
-                console.error(`Error reading JS file ${filePath}:`, error);
-                res.status(500).send('Error loading JavaScript file');
-            }
+            res.setHeader('Content-Type', 'application/javascript');
+            res.send(embeddedContent);
         });
     }
 }

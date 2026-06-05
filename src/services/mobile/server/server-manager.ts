@@ -4,7 +4,6 @@ import * as http from 'http';
 import { AddressInfo } from 'net';
 import { NetworkInterfaceInfo } from 'os';
 import { spawn, ChildProcess } from 'child_process';
-import * as QRCode from 'qrcode';
 import { debugLog } from '../../../utils/logging';
 import { AuthManager, AuthConfig } from '../auth/';
 import { wrapCommandForWSL } from '../../../utils/wsl-helper';
@@ -226,14 +225,19 @@ export class ServerManager {
         
         debugLog(`📱 QR Code URL: ${webUrl}`);
         
-        return QRCode.toDataURL(webUrl, {
-            width: 300,
-            margin: 2,
-            color: {
-                dark: '#000000',
-                light: '#FFFFFF'
-            }
-        });
+        try {
+            const { toDataURL } = await import('qrcode');
+            return toDataURL(webUrl, {
+                width: 300,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#FFFFFF'
+                }
+            });
+        } catch {
+            return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(webUrl)}`;
+        }
     }
 
     public getServerUrl(): string {
