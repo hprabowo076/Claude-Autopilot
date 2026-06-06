@@ -5,6 +5,7 @@ export interface MessageItem {
     status: 'pending' | 'processing' | 'completed' | 'error' | 'waiting';
     output?: string;
     error?: string;
+    result?: string;
     processingStartedAt?: string;
     completedAt?: string;
     waitUntil?: number;
