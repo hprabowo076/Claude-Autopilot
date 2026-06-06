@@ -253,46 +253,11 @@ export async function checkPythonInstallation(): Promise<DependencyCheckResult> 
 }
 
 export async function checkPtyWrapperAvailability(): Promise<DependencyCheckResult> {
-    try {
-        // Import extensionContext from global state
-        const { extensionContext } = await import('../../core/state');
-
-        // Use extension context to get the correct path
-        const wrapperPath = extensionContext
-            ? path.join(extensionContext.extensionPath, 'out', 'claude', 'session', 'claude_pty_wrapper.py')
-            : path.join(__dirname, '../../claude/session/claude_pty_wrapper.py');
-        
-        // Check if the wrapper file exists
-        if (!fs.existsSync(wrapperPath)) {
-            return {
-                available: false,
-                error: `PTY wrapper not found at expected path: ${wrapperPath}`,
-                installInstructions: 'The PTY wrapper should be included with the extension. Try reinstalling the extension.'
-            };
-        }
-        
-        // Check if the file is readable
-        try {
-            fs.accessSync(wrapperPath, fs.constants.R_OK);
-            return {
-                available: true,
-                version: 'Ready',
-                path: wrapperPath
-            };
-        } catch (accessError) {
-            return {
-                available: false,
-                error: `PTY wrapper exists but is not readable: ${accessError}`,
-                installInstructions: 'Check file permissions on the PTY wrapper file.'
-            };
-        }
-    } catch (error) {
-        return {
-            available: false,
-            error: `Error checking PTY wrapper: ${error}`,
-            installInstructions: 'Try reinstalling the extension to restore the PTY wrapper.'
-        };
-    }
+    return {
+        available: true,
+        version: 'Not required (print mode)',
+        path: 'n/a'
+    };
 }
 
 export async function checkNgrokInstallation(): Promise<DependencyCheckResult> {
