@@ -1,7 +1,7 @@
 {
   "name": "claude-autopilot",
   "description": "Automated Claude Code task management with queue processing and auto-resume functionality",
-  "version": "0.1.7-standalone",
+  "version": "0.1.7",
   "main": "./out/src/main.js",
   "bin": {
     "claude-autopilot": "./out/src/main.js"
