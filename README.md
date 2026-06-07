@@ -3,9 +3,9 @@
 [![Version](https://img.shields.io/badge/version-0.1.7-standalone-blue)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**Standalone fork** of [benbasha/Claude-Autopilot](https://github.com/benbasha/Claude-Autopilot). Strips VS Code / Cursor dependency. Runs as a CLI tool or web server.
+**Standalone fork** of [benbasha/Claude-Autopilot](https://github.com/benbasha/Claude-Autopilot). Strips VS Code / Cursor dependency. Runs as CLI tool or web server.
 
-Queue hundreds of tasks, process them 24/7 with auto-resume across Claude usage limits.
+Queue tasks, process them sequentially via Claude Code CLI `-p` (print mode).
 
 ---
 
@@ -13,8 +13,7 @@ Queue hundreds of tasks, process them 24/7 with auto-resume across Claude usage 
 
 ### Prerequisites
 
-- [Claude Code](https://www.anthropic.com/claude-code) CLI installed and authenticated
-- Python 3.8+ (for PTY process wrapper)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup) CLI installed and authenticated
 - Node.js 18+
 
 ### Install
@@ -51,15 +50,31 @@ claude-autopilot serve
 
 ---
 
+## How It Works
+
+Each queued message spawns `claude -p <prompt>` as a separate subprocess. Claude processes prompt in print mode, writes response to stdout, exits. No persistent interactive session, no PTY wrapper.
+
+Flow:
+```
+add "fix bug in login" → queue → claude -p "fix bug in login" → response stored → next message
+```
+
+Key details:
+- Each message runs independently — no conversational context between queue items
+- Claude must be authenticated: `claude /login` or set `ANTHROPIC_API_KEY`
+- Compatible with Claude CLI v2.x — no Python or WSL dependency on Windows
+- Timeout per message: 5 minutes (configurable in source)
+
+---
+
 ## Features
 
-- **24/7 processing** — queue tasks, walk away, come back to results
-- **Auto-resume** — detects Claude usage limits, waits, and resumes automatically
-- **Sleep prevention** — keeps machine awake during long runs (macOS/Linux/Windows)
-- **Smart queue** — add, edit, reorder, duplicate, remove messages
-- **Health monitoring** — detects stalled Claude processes and recovers
-- **Web UI** — full Express + WebSocket interface for remote control
-- **History tracking** — persists runs with filtering and status tracking
+- **Queue processing** — add tasks, process sequentially, review results
+- **Print mode** — works with stock Claude CLI v2.x, no extra dependencies
+- **Cross-platform** — Windows, macOS, Linux (Claude CLI must be on PATH)
+- **Web UI** — Express + WebSocket interface for remote queue management
+- **History tracking** — persists runs with filtering and status
+- **Configurable** — JSON config file at `~/.claude-autopilot/config.json`
 
 ---
 
@@ -101,16 +116,19 @@ src/
 │   ├── config/                 # Config reader/writer (JSON file)
 │   ├── state/                  # Runtime state + file-based KV store
 │   ├── workspace/              # Workspace abstraction (cwd + glob)
-│   └── types/                  # Shared types + vscode stubs
-├── claude/                     # Claude CLI process management
+│   └── types/                  # Shared types
+├── claude/
+│   ├── session/                # runClaudePrint() — spawns claude -p <prompt>
+│   ├── communication/          # Queue processing loop
+│   └── output/                 # Output buffer for webview display
 ├── queue/                      # Message queue + history persistence
 ├── services/
 │   ├── mobile/                 # Express + WebSocket web UI server
 │   ├── health/                 # Process health monitoring
 │   ├── sleep/                  # Platform sleep prevention
 │   ├── scheduler/              # Scheduled session start
-│   └── dependency-check/       # Claude/Python/wrapper validation
-├── ui/                         # Webview (legacy, not used in CLI mode)
+│   └── dependency-check/       # Claude CLI detection
+├── ui/                         # Legacy VS Code webview (not used in CLI mode)
 └── utils/                      # Logging, notifications, error handling
 ```
 
@@ -122,10 +140,10 @@ src/
 claude-autopilot serve
 ```
 
-Starts Express server on random port with:
+Starts Express server with:
 - WebSocket real-time queue/status updates
 - File explorer and search
-- Queue management (add, edit, reorder)
+- Queue management (add, edit, reorder, duplicate)
 - QR code for mobile access
 - Optional ngrok tunnel for external access
 
@@ -139,6 +157,13 @@ cd Claude-Autopilot
 npm install
 npm run compile
 node out/src/main.js --help
+```
+
+### Build binaries
+
+```bash
+npm run bundle
+# Produces win-x64, linux-x64, macos-x64 binaries in dist/
 ```
 
 ---
